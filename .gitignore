@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.local
+.DS_Store
+
+# 沙箱/IDE 产物
+.trae/
+.trae-html-share-packages/
+*.zip
