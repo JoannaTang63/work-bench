@@ -75,3 +75,20 @@ export const api = {
   /** multipart 上传（不要手动设置 Content-Type，让浏览器生成 boundary） */
   upload: <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData }),
 };
+
+/** 带鉴权拉取文件 blob（预览用；图片/PDF/文本均可），401 时复用统一下线逻辑 */
+export async function fetchBlob(path: string): Promise<Blob> {
+  const disposable = new Headers();
+  const token = getToken();
+  if (token) disposable.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(path, { headers: disposable });
+  if (res.status === 401) {
+    clearToken();
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    throw new ApiError(401, "unauthorized");
+  }
+  if (!res.ok) throw new ApiError(res.status, `http_${res.status}`);
+  return await res.blob();
+}
