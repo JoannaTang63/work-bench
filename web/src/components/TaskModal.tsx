@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getToken } from "../lib/api";
-import { formatSize } from "../lib/format";
+import { api, fetchBlob, getToken } from "../lib/api";
+import { fileExt, formatSize, previewKind, type PreviewKind } from "../lib/format";
 import {
   EVENT_TYPE_META,
   eventTypeOf,
@@ -51,11 +51,184 @@ const inputClass =
 const selectClass =
   "w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-700";
 
+/** 图片附件缩略图：带鉴权拉取 blob 后本地预览，点击放大 */
+function ImageThumb({ file, onOpen }: { file: TaskFile; onOpen: () => void }) {
+  const [url, setUrl] = useState<string>("");
+  const [failed, setFailed] = useState(false);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    fetchBlob(`/api/files/${file.id}`)
+      .then((blob) => {
+        if (!alive.current) return;
+        setUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (alive.current) setFailed(true);
+      });
+    return () => {
+      alive.current = false;
+    };
+  }, [file.id]);
+
+  if (failed) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4 shrink-0 text-slate-400">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+      </svg>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`预览 ${file.name}`}
+      className="h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
+    >
+      {url ? (
+        <img src={url} alt={file.name} className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
+          {fileExt(file.name).slice(0, 4)}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** 附件预览弹层：图片内嵌 / PDF iframe / 文本解码展示，其余提示下载 */
+function FilePreview({
+  file,
+  onClose,
+  onDownload,
+}: {
+  file: TaskFile;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
+  const kind: PreviewKind = previewKind(file.mime_type, file.name);
+  const [data, setData] = useState<{ blobUrl: string; text?: string } | null>(null);
+  const [error, setError] = useState("");
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    setData(null);
+    setError("");
+    const rawKind = previewKind(file.mime_type, file.name);
+    if (rawKind === "none") return;
+    let objectUrl = "";
+    fetchBlob(`/api/files/${file.id}`)
+      .then(async (blob) => {
+        if (!alive.current) return;
+        if (rawKind === "text") {
+          objectUrl = "";
+          const text = await blob.text();
+          if (alive.current) setData({ blobUrl: "", text });
+        } else {
+          objectUrl = URL.createObjectURL(blob);
+          if (alive.current) setData({ blobUrl: objectUrl });
+        }
+      })
+      .catch(() => {
+        if (alive.current) setError("预览加载失败，请尝试下载");
+      });
+    return () => {
+      alive.current = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file.id]);
+
+  const body =
+    error ? (
+      <p className="py-10 text-center text-sm text-slate-400">{error}</p>
+    ) : kind === "image" ? (
+      data?.blobUrl ? (
+        <div className="flex max-h-[70vh] items-center justify-center overflow-auto rounded-lg bg-black/5 p-2 dark:bg-black/30">
+          <img src={data.blobUrl} alt={file.name} className="max-h-[68vh] max-w-full object-contain" />
+        </div>
+      ) : (
+        <FrameSkeleton />
+      )
+    ) : kind === "pdf" ? (
+      data?.blobUrl ? (
+        <iframe
+          src={data.blobUrl}
+          title={file.name}
+          className="h-[70vh] w-full rounded-lg border border-slate-200 bg-white dark:border-slate-600"
+        />
+      ) : (
+        <FrameSkeleton />
+      )
+    ) : kind === "text" ? (
+      data?.text !== undefined ? (
+        <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed whitespace-pre-wrap break-all dark:border-slate-600 dark:bg-slate-700/50">
+          {data.text}
+        </div>
+      ) : (
+        <FrameSkeleton />
+      )
+    ) : (
+      <p className="py-10 text-center text-sm text-slate-400">
+        该类型（{file.mime_type || "未知"}）暂不支持在线预览，请下载后查看。
+      </p>
+    );
+
+  return (
+    <div
+      className="fixed z-[60] flex max-w-[48rem] flex-col rounded-2xl bg-white shadow-xl dark:bg-slate-800"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ width: "calc(100vw - 2rem)", maxWidth: "48rem", maxHeight: "calc(100vh - 4rem)", inset: "50% auto auto 50%", transform: "translate(-50%, -50%)" }}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-700">
+        <div className="flex min-w-0 items-center gap-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4 shrink-0 text-indigo-500">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="min-w-0 truncate text-sm font-medium text-slate-700 dark:text-slate-200" title={file.name}>
+            {file.name}
+          </span>
+          <span className="shrink-0 text-[10px] tabular-nums text-slate-400">{formatSize(file.size)}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onDownload}
+            title="下载"
+            className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+          >
+            下载
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            title="关闭"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="p-3">{body}</div>
+    </div>
+  );
+}
+
+/** 预览内容未加载完成时的骨架占位 */
+function FrameSkeleton() {
+  return <div className="h-[70vh] w-full animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700" />;
+}
+
 /** 附件区块：仅编辑已保存的事件时可用（新事件需先保存拿到 id） */
 function Attachments({ taskId }: { taskId: string }) {
   const [files, setFiles] = useState<TaskFile[] | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<TaskFile | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -162,42 +335,69 @@ function Attachments({ taskId }: { taskId: string }) {
         <p className="text-xs text-slate-400 dark:text-slate-500">暂无附件（≤ 50MB / 个）</p>
       ) : (
         <ul className="space-y-1">
-          {files.map((f) => (
-            <li
-              key={f.id}
-              className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-700/60"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4 shrink-0 text-slate-400">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-              </svg>
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={f.name}>
-                {f.name}
-              </span>
-              <span className="shrink-0 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">{formatSize(f.size)}</span>
-              <button
-                type="button"
-                onClick={() => void handleDownload(f)}
-                title="下载"
-                className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-indigo-600 dark:hover:bg-slate-600"
+          {files.map((f) => {
+            const kind = previewKind(f.mime_type, f.name);
+            return (
+              <li
+                key={f.id}
+                className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-700/60"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete(f)}
-                title="删除"
-                className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </li>
-          ))}
+                {kind === "image" ? (
+                  <ImageThumb file={f} onOpen={() => setPreview(f)} />
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4 shrink-0 text-slate-400">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                  </svg>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-700 hover:text-indigo-600 hover:underline dark:text-slate-200 dark:hover:text-indigo-300"
+                  title={previewKind(f.mime_type, f.name) === "none" ? "该类型暂不支持预览，可下载查看" : "点击预览"}
+                >
+                  {f.name}
+                </button>
+                <span className="shrink-0 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">{formatSize(f.size)}</span>
+                {kind !== "none" && (
+                  <button
+                    type="button"
+                    onClick={() => setPreview(f)}
+                    title="预览"
+                    className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-indigo-600 dark:hover:bg-slate-600"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleDownload(f)}
+                  title="下载"
+                  className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-indigo-600 dark:hover:bg-slate-600"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(f)}
+                  title="删除"
+                  className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
+
+      {preview && <FilePreview file={preview} onClose={() => setPreview(null)} onDownload={() => void handleDownload(preview)} />}
     </div>
   );
 }
