@@ -28,10 +28,18 @@ body {
 .xlsx-preview table td,
 .xlsx-preview table th {
   @apply border px-2 py-1;
-}
-.xlsx-preview table td {
   border-color: rgb(203 213 225);
+}
+.xlsx-preview table td,
+.xlsx-preview table th {
+  color: rgb(15 23 42); /* slate-900 深字 */
   background: #fff;
+}
+.dark .xlsx-preview table td,
+.dark .xlsx-preview table th {
+  color: rgb(226 232 240); /* slate-100 浅字 */
+  background: rgb(30 41 59); /* slate-800 深底 */
+  border-color: rgb(71 85 105); /* slate-600 */
 }
 .xlsx-preview {
   overflow: auto;
