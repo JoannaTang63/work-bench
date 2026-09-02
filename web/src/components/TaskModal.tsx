@@ -97,7 +97,7 @@ function ImageThumb({ file, onOpen }: { file: TaskFile; onOpen: () => void }) {
   );
 }
 
-/** 附件预览弹层：图片内嵌 / PDF iframe / 文本解码展示，其余提示下载 */
+/** 附件预览弹层：图片内嵌 / PDF iframe / 文本解码展示 / docx / xlsx，其余提示下载 */
 function FilePreview({
   file,
   onClose,
@@ -108,9 +108,10 @@ function FilePreview({
   onDownload: () => void;
 }) {
   const kind: PreviewKind = previewKind(file.mime_type, file.name);
-  const [data, setData] = useState<{ blobUrl: string; text?: string } | null>(null);
+  const [data, setData] = useState<{ blobUrl: string; text?: string; xlsxHtml?: string } | null>(null);
   const [error, setError] = useState("");
   const alive = useRef(true);
+  const docxHostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -126,6 +127,25 @@ function FilePreview({
           objectUrl = "";
           const text = await blob.text();
           if (alive.current) setData({ blobUrl: "", text });
+        } else if (rawKind === "docx") {
+          objectUrl = "";
+          const { renderAsync } = await import("docx-preview");
+          // 等宿主容器挂载后渲染（下一帧）
+          await new Promise((r) => setTimeout(r, 0));
+          if (!alive.current || !docxHostRef.current) return;
+          await renderAsync(blob, docxHostRef.current);
+        } else if (rawKind === "xlsx") {
+          objectUrl = "";
+          const { read: readXlsx, utils: xlsxUtils } = await import("xlsx");
+          const wb = readXlsx(await blob.arrayBuffer(), { type: "array" });
+          if (!alive.current) return;
+          const first = wb.Sheets[wb.SheetNames[0]];
+          if (first) {
+            const html = xlsxUtils.sheet_to_html(first, { header: "", footer: "" });
+            if (alive.current) setData({ blobUrl: "", xlsxHtml: html });
+          } else {
+            if (alive.current) setData({ blobUrl: "", xlsxHtml: "" });
+          }
         } else {
           objectUrl = URL.createObjectURL(blob);
           if (alive.current) setData({ blobUrl: objectUrl });
@@ -165,6 +185,22 @@ function FilePreview({
       data?.text !== undefined ? (
         <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed whitespace-pre-wrap break-all dark:border-slate-600 dark:bg-slate-700/50">
           {data.text}
+        </div>
+      ) : (
+        <FrameSkeleton />
+      )
+    ) : kind === "docx" ? (
+      <div
+        ref={docxHostRef}
+        className="docx-container max-h-[70vh] overflow-auto rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-white"
+      />
+    ) : kind === "xlsx" ? (
+      data?.xlsxHtml !== undefined ? (
+        <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200 dark:border-slate-600">
+          <div
+            className="xlsx-preview text-xs"
+            dangerouslySetInnerHTML={{ __html: data.xlsxHtml || "<p class='p-3 text-slate-400'>表格为空</p>" }}
+          />
         </div>
       ) : (
         <FrameSkeleton />

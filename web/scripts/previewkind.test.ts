@@ -14,7 +14,14 @@ const cases: [string, string, string][] = [
   ["application/json", "data.json", "text"],
   ["application/zip", "a.zip", "none"],
   ["application/x-msdownload", "a.exe", "none"],
-  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx", "none"],
+  ["application/octet-stream", "a.docx", "docx"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx", "docx"],
+  ["application/octet-stream", "a.xlsx", "xlsx"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "a.xlsx", "xlsx"],
+  ["application/msword", "a.doc", "none"],
+  ["application/octet-stream", "a.xls", "none"],
+  ["application/octet-stream", "a.ppt", "none"],
+  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", "a.pptx", "none"],
   ["", "a.unknownext", "none"],
 ];
 

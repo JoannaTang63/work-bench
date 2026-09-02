@@ -11,3 +11,28 @@ body,
 body {
   @apply bg-slate-100 text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100;
 }
+
+/* 附件 —— docx 渲染容器（docx-preview 生成内联样式） */
+.docx-container {
+  font-family: inherit;
+  color: inherit;
+}
+.docx-container img {
+  max-width: 100%;
+}
+
+/* 附件 —— xlsx 预览表格常规化（SheetJS sheet_to_html 输出带边框样式） */
+.xlsx-preview table {
+  border-collapse: collapse;
+}
+.xlsx-preview table td,
+.xlsx-preview table th {
+  @apply border px-2 py-1;
+}
+.xlsx-preview table td {
+  border-color: rgb(203 213 225);
+  background: #fff;
+}
+.xlsx-preview {
+  overflow: auto;
+}
