@@ -108,7 +108,12 @@ function FilePreview({
   onDownload: () => void;
 }) {
   const kind: PreviewKind = previewKind(file.mime_type, file.name);
-  const [data, setData] = useState<{ blobUrl: string; text?: string; xlsxHtml?: string } | null>(null);
+  const [data, setData] = useState<{
+    blobUrl: string;
+    text?: string;
+    xlsxSheets?: { name: string; html: string }[];
+    xlsxActive?: number;
+  } | null>(null);
   const [error, setError] = useState("");
   const alive = useRef(true);
   const docxHostRef = useRef<HTMLDivElement>(null);
@@ -139,13 +144,15 @@ function FilePreview({
           const { read: readXlsx, utils: xlsxUtils } = await import("xlsx");
           const wb = readXlsx(await blob.arrayBuffer(), { type: "array" });
           if (!alive.current) return;
-          const first = wb.Sheets[wb.SheetNames[0]];
-          if (first) {
-            const html = xlsxUtils.sheet_to_html(first, { header: "", footer: "" });
-            if (alive.current) setData({ blobUrl: "", xlsxHtml: html });
-          } else {
-            if (alive.current) setData({ blobUrl: "", xlsxHtml: "" });
-          }
+          const sheets = wb.SheetNames
+            .map((name) => {
+              const ws = wb.Sheets[name];
+              return ws
+                ? { name, html: xlsxUtils.sheet_to_html(ws, { header: "", footer: "" }) }
+                : null;
+            })
+            .filter((s): s is { name: string; html: string } => s !== null);
+          if (alive.current) setData({ blobUrl: "", xlsxSheets: sheets, xlsxActive: 0 });
         } else {
           objectUrl = URL.createObjectURL(blob);
           if (alive.current) setData({ blobUrl: objectUrl });
@@ -195,12 +202,35 @@ function FilePreview({
         className="docx-container max-h-[70vh] overflow-auto rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-white"
       />
     ) : kind === "xlsx" ? (
-      data?.xlsxHtml !== undefined ? (
-        <div className="max-h-[70vh] overflow-auto rounded-lg border border-slate-200 dark:border-slate-600">
-          <div
-            className="xlsx-preview text-xs"
-            dangerouslySetInnerHTML={{ __html: data.xlsxHtml || "<p class='p-3 text-slate-400'>表格为空</p>" }}
-          />
+      data?.xlsxSheets !== undefined ? (
+        <div className="flex max-h-[70vh] flex-col gap-2">
+          {data.xlsxSheets.length > 1 && (
+            <div className="flex shrink-0 flex-wrap gap-1">
+              {data.xlsxSheets.map((s, i) => (
+                <button
+                  key={s.name}
+                  type="button"
+                  onClick={() => setData({ ...data, xlsxActive: i })}
+                  className={`max-w-[10rem] truncate rounded-md border px-2 py-1 text-xs transition-colors ${
+                    i === (data.xlsxActive ?? 0)
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                  }`}
+                  title={s.name}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="overflow-auto rounded-lg border border-slate-200 dark:border-slate-600">
+            <div
+              className="xlsx-preview text-xs"
+              dangerouslySetInnerHTML={{
+                __html: data.xlsxSheets[(data.xlsxActive ?? 0)]?.html || "<p class='p-3 text-slate-400'>表格为空</p>",
+              }}
+            />
+          </div>
         </div>
       ) : (
         <FrameSkeleton />

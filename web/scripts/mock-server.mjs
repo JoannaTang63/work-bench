@@ -30,16 +30,22 @@ const SAMPLE_PDF = Buffer.from(
   "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000103 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n162\n%%EOF\n",
 );
 
-// 用 xlsx 库动态生成真实 .xlsx 供前端预览解析
+// 用 xlsx 库动态生成真实 .xlsx（多 sheet）供前端预览解析与 tab 切换验证
 function makeXlsxBuf() {
   const wb = xlsxUtils.book_new();
-  const ws = xlsxUtils.aoa_to_sheet([
+  const ws1 = xlsxUtils.aoa_to_sheet([
     ["月份", "销售额", "目标达成"],
     ["1月", 12800, "95%"],
     ["2月", 15600, "102%"],
     ["3月", 14300, "98%"],
   ]);
-  xlsxUtils.book_append_sheet(wb, ws, "季度数据");
+  xlsxUtils.book_append_sheet(wb, ws1, "季度数据");
+  const ws2 = xlsxUtils.aoa_to_sheet([
+    ["部门", "负责人", "人数"],
+    ["研发", "张工", 12],
+    ["市场", "李工", 8],
+  ]);
+  xlsxUtils.book_append_sheet(wb, ws2, "人员编制");
   return Buffer.from(writeXlsx(wb, { type: "array", bookType: "xlsx" }));
 }
 
